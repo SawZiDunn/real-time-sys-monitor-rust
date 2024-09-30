@@ -3,11 +3,12 @@ use iced::widget::{button, checkbox, column, container, row, text, Column};
 use iced::{
     executor, Alignment, Application, Command, Element, Length, Settings, Subscription, Theme,
 };
+
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Duration;
-use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
+use sysinfo::{Disks, Networks, System};
 
 fn main() -> iced::Result {
     SystemMonitor::run(Settings::default())
@@ -41,6 +42,8 @@ struct SystemBaseInfo {
 
 struct SystemMonitor {
     system: System,
+    disks: Disks,
+    networks: Networks,
     system_base_info: SystemBaseInfo,
     // cpu info
     cpu_usage: f32,
@@ -51,8 +54,13 @@ struct SystemMonitor {
 
     // memory
     memory_usage: (u64, u64),
-    disk_usage: (u64, u64),
+    swap_memory_usage: (u64, u64),
 
+    // disk
+    disk_usage: (u64, u64),
+    disks_info: Vec<(String, String, u64, u64)>,
+
+    // network
     network_sent: u64,
     network_received: u64,
 
@@ -110,6 +118,18 @@ impl SystemMonitor {
             ))
             .size(20);
             display = display.push(memory_info);
+
+            let swap_used_gb = self.swap_memory_usage.0 as f64 / f64::powf(1024., 3.);
+            let swap_total_gb = self.swap_memory_usage.1 as f64 / f64::powf(1024., 3.);
+            let swap_used_percent =
+                (self.swap_memory_usage.0 as f64 / self.swap_memory_usage.1 as f64) * 100.;
+
+            let memory_info = text(format!(
+                "Swap Memory usage: {:.2} GB / {:.2} GB ({:.2})%",
+                swap_used_gb, swap_total_gb, swap_used_percent
+            ))
+            .size(20);
+            display = display.push(memory_info);
         }
 
         // Display Disk Usage
@@ -124,6 +144,15 @@ impl SystemMonitor {
             ))
             .size(20);
             display = display.push(disk_info);
+
+            for (name, kind, total, free) in self.disks_info.iter() {
+                let disk_text = text(format!(
+                    "Name: {}, Kind: {}, Total: {:.2}, Free: {:.2}",
+                    name, kind, total, free
+                ))
+                .size(20);
+                display = display.push(disk_text);
+            }
         }
 
         // Display Network Usage
@@ -149,38 +178,50 @@ impl Application for SystemMonitor {
 
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
         let mut system = System::new_all();
+        let disks = Disks::new_with_refreshed_list();
+        let networks = Networks::new_with_refreshed_list();
         system.refresh_all();
 
         let total_memory = system.total_memory();
         let used_memory = system.used_memory();
-        let total_disk = system
-            .disks()
-            .iter()
-            .fold(0, |acc, disk| acc + disk.total_space());
-        let used_disk = system
-            .disks()
+        let total_swap_memory = system.total_swap();
+        let used_swap_memory = system.used_swap();
+
+        let total_disk = disks.iter().fold(0, |acc, disk| acc + disk.total_space());
+        let used_disk = disks
             .iter()
             .fold(0, |acc, disk| acc + disk.available_space());
 
-        let network_sent = system
-            .networks()
+        let disks_info: Vec<(String, String, u64, u64)> = disks
+            .list()
             .iter()
-            .fold(0, |acc, (_interface, data)| acc + data.transmitted());
-        let network_received = system
-            .networks()
-            .iter()
-            .fold(0, |acc, (_interface, data)| acc + data.received());
+            .map(|disk| {
+                (
+                    String::from(disk.name().to_string_lossy()),
+                    disk.kind().to_string(),
+                    disk.total_space(),
+                    disk.available_space(),
+                )
+            })
+            .collect();
+
+        let network_sent = networks.iter().fold(0, |acc, (_interface, network)| {
+            acc + network.total_transmitted()
+        });
+        let network_received = networks.iter().fold(0, |acc, (_interface, network)| {
+            acc + network.total_received()
+        });
 
         let no_of_processes: u32 = system.processes().len() as u32;
-        let cpu_usage = system.global_cpu_info().cpu_usage();
+        let cpu_usage = system.global_cpu_usage();
         let physical_cores: u32 = system.physical_core_count().unwrap_or(0) as u32;
         let logical_processors = system.cpus().len() as u32;
 
         let system_base_info = SystemBaseInfo {
-            system_name: system.name().unwrap_or_default(),
-            kernal_version: system.kernel_version().unwrap_or_default(),
-            os_version: system.os_version().unwrap_or_default(),
-            host_name: system.host_name().unwrap_or_default(),
+            system_name: System::name().unwrap_or_default(),
+            kernal_version: System::kernel_version().unwrap_or_default(),
+            os_version: System::os_version().unwrap_or_default(),
+            host_name: System::host_name().unwrap_or_default(),
         };
 
         let processors_info = system
@@ -192,6 +233,9 @@ impl Application for SystemMonitor {
         (
             SystemMonitor {
                 system,
+                disks,
+                disks_info,
+                networks,
                 system_base_info,
                 cpu_usage,
                 no_of_processes,
@@ -199,6 +243,7 @@ impl Application for SystemMonitor {
                 physical_cores,
                 logical_processors,
                 memory_usage: (used_memory, total_memory),
+                swap_memory_usage: (used_swap_memory, total_swap_memory),
                 disk_usage: (used_disk, total_disk),
                 network_sent,
                 network_received,
@@ -222,7 +267,7 @@ impl Application for SystemMonitor {
                 if self.is_monitoring {
                     self.system.refresh_all();
 
-                    self.cpu_usage = self.system.global_cpu_info().cpu_usage();
+                    self.cpu_usage = self.system.global_cpu_usage();
                     self.no_of_processes = self.system.processes().len() as u32;
                     self.processors_info = self
                         .system
@@ -235,26 +280,38 @@ impl Application for SystemMonitor {
                     self.logical_processors = self.system.cpus().len() as u32;
 
                     self.memory_usage = (self.system.used_memory(), self.system.total_memory());
+                    self.swap_memory_usage = (self.system.used_swap(), self.system.total_swap());
+
                     self.disk_usage = (
-                        self.system.disks().iter().fold(0, |acc, disk| {
+                        self.disks.iter().fold(0, |acc, disk| {
                             acc + (disk.total_space() - disk.available_space())
                         }),
-                        self.system
-                            .disks()
+                        self.disks
                             .iter()
                             .fold(0, |acc, disk| acc + disk.total_space()),
                     );
 
-                    self.network_sent = self
-                        .system
-                        .networks()
+                    self.disks_info = self
+                        .disks
                         .iter()
-                        .fold(0, |acc, (_interface, data)| acc + data.transmitted());
-                    self.network_received = self
-                        .system
-                        .networks()
-                        .iter()
-                        .fold(0, |acc, (_interface, data)| acc + data.received());
+                        .map(|disk| {
+                            (
+                                String::from(disk.name().to_string_lossy()),
+                                disk.kind().to_string(),
+                                disk.total_space(),
+                                disk.available_space(),
+                            )
+                        })
+                        .collect();
+
+                    self.network_sent =
+                        self.networks.iter().fold(0, |acc, (_interface, network)| {
+                            acc + network.total_transmitted()
+                        });
+                    self.network_received =
+                        self.networks.iter().fold(0, |acc, (_interface, network)| {
+                            acc + network.total_received()
+                        });
 
                     log_metrics(&self);
                 }
