@@ -100,9 +100,13 @@ impl SystemMonitor {
 
         // Display Memory Usage
         if self.show_memory {
+            let used_gb = self.memory_usage.0 as f64 / f64::powf(1024., 3.);
+            let total_gb = self.memory_usage.1 as f64 / f64::powf(1024., 3.);
+            let used_percent = (self.memory_usage.0 as f64 / self.memory_usage.1 as f64) * 100.;
+
             let memory_info = text(format!(
-                "Memory usage: {} KB / {} KB",
-                self.memory_usage.0, self.memory_usage.1
+                "Memory usage: {:.2} GB / {:.2} GB ({:.2})%",
+                used_gb, total_gb, used_percent
             ))
             .size(20);
             display = display.push(memory_info);
@@ -110,9 +114,13 @@ impl SystemMonitor {
 
         // Display Disk Usage
         if self.show_disk {
+            let used_gb = self.disk_usage.0 as f64 / f64::powf(1024., 3.);
+            let total_gb = self.disk_usage.1 as f64 / f64::powf(1024., 3.);
+            let used_percent = (self.disk_usage.0 as f64 / self.disk_usage.1 as f64) * 100.;
+
             let disk_info = text(format!(
-                "Disk usage: {} KB / {} KB",
-                self.disk_usage.0, self.disk_usage.1
+                "Disk usage: {:.2} GB / {:.2} GB ({:.2})%",
+                used_gb, total_gb, used_percent
             ))
             .size(20);
             display = display.push(disk_info);
@@ -121,8 +129,9 @@ impl SystemMonitor {
         // Display Network Usage
         if self.show_network {
             let network_info = text(format!(
-                "Network usage: {} bytes sent / {} bytes received",
-                self.network_sent, self.network_received
+                "Network usage: {:.2} MB sent / {:.2} MB received",
+                self.network_sent as f64 / u64::pow(10, 6) as f64,
+                self.network_received as f64 / u64::pow(10, 6) as f64
             ))
             .size(20);
             display = display.push(network_info);
@@ -212,6 +221,7 @@ impl Application for SystemMonitor {
             Message::Tick => {
                 if self.is_monitoring {
                     self.system.refresh_all();
+
                     self.cpu_usage = self.system.global_cpu_info().cpu_usage();
                     self.no_of_processes = self.system.processes().len() as u32;
                     self.processors_info = self
@@ -226,10 +236,9 @@ impl Application for SystemMonitor {
 
                     self.memory_usage = (self.system.used_memory(), self.system.total_memory());
                     self.disk_usage = (
-                        self.system
-                            .disks()
-                            .iter()
-                            .fold(0, |acc, disk| acc + disk.available_space()),
+                        self.system.disks().iter().fold(0, |acc, disk| {
+                            acc + (disk.total_space() - disk.available_space())
+                        }),
                         self.system
                             .disks()
                             .iter()
