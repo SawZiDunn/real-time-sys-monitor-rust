@@ -1,12 +1,13 @@
 use iced::time;
-use iced::widget::{button, checkbox, Column, Container, Row, Text};
-use iced::{executor, Alignment, Application, Command, Element, Length, Settings, Subscription};
+use iced::widget::{button, checkbox, column, container, row, text, Column};
+use iced::{
+    executor, Alignment, Application, Command, Element, Length, Settings, Subscription, Theme,
+};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Duration;
 use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
-use tokio::time::interval;
 
 fn main() -> iced::Result {
     SystemMonitor::run(Settings::default())
@@ -22,7 +23,6 @@ enum Message {
     ToggleNetwork(bool),
 }
 
-// for logging data
 #[derive(Serialize, Deserialize)]
 struct SystemData {
     cpu_usage: f32,
@@ -32,19 +32,30 @@ struct SystemData {
     network_received: u64,
 }
 
+struct SystemBaseInfo {
+    system_name: String,
+    kernal_version: String,
+    os_version: String,
+    host_name: String,
+}
+
 struct SystemMonitor {
     system: System,
-    // cpu
+    system_base_info: SystemBaseInfo,
+    // cpu info
     cpu_usage: f32,
     no_of_processes: u32,
-    base_cpu_speed: u64,
     physical_cores: u32,
     logical_processors: u32,
+    processors_info: Vec<(String, f32)>,
+
     // memory
     memory_usage: (u64, u64),
     disk_usage: (u64, u64),
+
     network_sent: u64,
     network_received: u64,
+
     is_monitoring: bool,
     show_cpu: bool,
     show_memory: bool,
@@ -52,10 +63,79 @@ struct SystemMonitor {
     show_network: bool,
 }
 
+impl SystemMonitor {
+    fn view_metrics(&self) -> Column<Message> {
+        let mut display = column![];
+
+        let system_base_info = text(format!(
+            "System Name: {}, OS Version: {}, Kernal Version: {}, Host Name: {}",
+            self.system_base_info.system_name,
+            self.system_base_info.os_version,
+            self.system_base_info.kernal_version,
+            self.system_base_info.host_name
+        ))
+        .size(20);
+
+        display = display.push(system_base_info);
+
+        // Display CPU usage and details for each processor
+        if self.show_cpu {
+            let cpu_info = text(format!(
+                "CPU usage: {:.2}%\n\
+                 Number of processes: {}\n\
+                 Physical Cores: {}\n\
+                 Logical processors: {}",
+                self.cpu_usage, self.no_of_processes, self.physical_cores, self.logical_processors
+            ))
+            .size(20);
+
+            display = display.push(cpu_info);
+
+            // Loop through `processors_info` and add each processor's details
+            for (name, usage) in self.processors_info.iter() {
+                let processor_text = text(format!("{}: - Usage: {:.2}%", name, usage)).size(20);
+                display = display.push(processor_text);
+            }
+        }
+
+        // Display Memory Usage
+        if self.show_memory {
+            let memory_info = text(format!(
+                "Memory usage: {} KB / {} KB",
+                self.memory_usage.0, self.memory_usage.1
+            ))
+            .size(20);
+            display = display.push(memory_info);
+        }
+
+        // Display Disk Usage
+        if self.show_disk {
+            let disk_info = text(format!(
+                "Disk usage: {} KB / {} KB",
+                self.disk_usage.0, self.disk_usage.1
+            ))
+            .size(20);
+            display = display.push(disk_info);
+        }
+
+        // Display Network Usage
+        if self.show_network {
+            let network_info = text(format!(
+                "Network usage: {} bytes sent / {} bytes received",
+                self.network_sent, self.network_received
+            ))
+            .size(20);
+            display = display.push(network_info);
+        }
+
+        display.spacing(20)
+    }
+}
+
 impl Application for SystemMonitor {
     type Executor = executor::Default;
     type Message = Message;
-    type Theme = iced::Theme;
+    type Theme = Theme;
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
@@ -73,7 +153,6 @@ impl Application for SystemMonitor {
             .iter()
             .fold(0, |acc, disk| acc + disk.available_space());
 
-        // Summing up the network data
         let network_sent = system
             .networks()
             .iter()
@@ -84,17 +163,30 @@ impl Application for SystemMonitor {
             .fold(0, |acc, (_interface, data)| acc + data.received());
 
         let no_of_processes: u32 = system.processes().len() as u32;
-        let base_cpu_speed: u64 = system.global_cpu_info().frequency();
         let cpu_usage = system.global_cpu_info().cpu_usage();
         let physical_cores: u32 = system.physical_core_count().unwrap_or(0) as u32;
         let logical_processors = system.cpus().len() as u32;
 
+        let system_base_info = SystemBaseInfo {
+            system_name: system.name().unwrap_or_default(),
+            kernal_version: system.kernel_version().unwrap_or_default(),
+            os_version: system.os_version().unwrap_or_default(),
+            host_name: system.host_name().unwrap_or_default(),
+        };
+
+        let processors_info = system
+            .cpus()
+            .iter()
+            .map(|cpu| (cpu.name().to_string(), cpu.cpu_usage()))
+            .collect();
+
         (
             SystemMonitor {
                 system,
+                system_base_info,
                 cpu_usage,
                 no_of_processes,
-                base_cpu_speed,
+                processors_info,
                 physical_cores,
                 logical_processors,
                 memory_usage: (used_memory, total_memory),
@@ -122,7 +214,12 @@ impl Application for SystemMonitor {
                     self.system.refresh_all();
                     self.cpu_usage = self.system.global_cpu_info().cpu_usage();
                     self.no_of_processes = self.system.processes().len() as u32;
-                    self.base_cpu_speed = self.system.global_cpu_info().frequency();
+                    self.processors_info = self
+                        .system
+                        .cpus()
+                        .iter()
+                        .map(|cpu| (cpu.name().to_string(), cpu.cpu_usage()))
+                        .collect();
 
                     self.physical_cores = self.system.physical_core_count().unwrap_or(0) as u32;
                     self.logical_processors = self.system.cpus().len() as u32;
@@ -139,7 +236,6 @@ impl Application for SystemMonitor {
                             .fold(0, |acc, disk| acc + disk.total_space()),
                     );
 
-                    // Updating network data
                     self.network_sent = self
                         .system
                         .networks()
@@ -151,7 +247,6 @@ impl Application for SystemMonitor {
                         .iter()
                         .fold(0, |acc, (_interface, data)| acc + data.received());
 
-                    // Log metrics to a file
                     log_metrics(&self);
                 }
             }
@@ -170,7 +265,7 @@ impl Application for SystemMonitor {
     fn view(&self) -> Element<Self::Message> {
         // Monitoring button
         let monitoring_button = button(
-            Text::new(if self.is_monitoring {
+            text(if self.is_monitoring {
                 "Stop Monitoring"
             } else {
                 "Start Monitoring"
@@ -180,86 +275,24 @@ impl Application for SystemMonitor {
         .on_press(Message::ToggleMonitoring);
 
         // Customizable display checkboxes
-        let cpu_checkbox = checkbox("Show CPU Usage", self.show_cpu, Message::ToggleCpu).size(20);
+        let cpu_checkbox = checkbox("Show CPU Usage", self.show_cpu).on_toggle(Message::ToggleCpu);
         let memory_checkbox =
-            checkbox("Show Memory Usage", self.show_memory, Message::ToggleMemory).size(20);
+            checkbox("Show Memory Usage", self.show_memory).on_toggle(Message::ToggleMemory);
         let disk_checkbox =
-            checkbox("Show Disk Usage", self.show_disk, Message::ToggleDisk).size(20);
-        let network_checkbox = checkbox(
-            "Show Network Usage",
-            self.show_network,
-            Message::ToggleNetwork,
-        )
-        .size(20);
+            checkbox("Show Disk Usage", self.show_disk).on_toggle(Message::ToggleDisk);
+        let network_checkbox =
+            checkbox("Show Network Usage", self.show_network).on_toggle(Message::ToggleNetwork);
 
-        // Metrics display
-        let mut display = Column::new().spacing(20);
+        let content = column![
+            monitoring_button,
+            row![cpu_checkbox, memory_checkbox].spacing(20),
+            row![disk_checkbox, network_checkbox].spacing(20),
+            self.view_metrics()
+        ]
+        .spacing(20)
+        .align_items(Alignment::Center);
 
-        // Metrics display
-        if self.show_cpu {
-            let cpu_info = Text::new(format!(
-                "CPU usage: {:.2}%\n
-                Number of proceses: {}\n
-                CPU Base Speed: {} MHz\n
-                Physical Cores: {}\n
-                Logical processors: {}",
-                self.cpu_usage,
-                self.no_of_processes,
-                self.base_cpu_speed,
-                self.physical_cores,
-                self.logical_processors
-            ))
-            .size(30);
-            display = display.push(cpu_info);
-        }
-        if self.show_memory {
-            let memory_info = Text::new(format!(
-                "Memory usage: {} KB / {} KB",
-                self.memory_usage.0, self.memory_usage.1
-            ))
-            .size(30);
-            display = display.push(memory_info);
-        }
-        if self.show_disk {
-            let disk_info = Text::new(format!(
-                "Disk usage: {} KB / {} KB",
-                self.disk_usage.0, self.disk_usage.1
-            ))
-            .size(30);
-            display = display.push(disk_info);
-        }
-        if self.show_network {
-            let network_info = Text::new(format!(
-                "Network usage: {} bytes sent / {} bytes received",
-                self.network_sent, self.network_received
-            ))
-            .size(30);
-            display = display.push(network_info);
-        }
-
-        // Create rows for the layout
-        let checkboxes_row = Row::new()
-            .spacing(20)
-            .align_items(Alignment::Center)
-            .push(cpu_checkbox)
-            .push(memory_checkbox);
-
-        let metrics_row = Row::new()
-            .spacing(20)
-            .align_items(Alignment::Center)
-            .push(disk_checkbox)
-            .push(network_checkbox);
-
-        // Layout: Start/Stop button -> Rows of Checkboxes -> Metrics
-        let content = Column::new()
-            .spacing(20)
-            .align_items(Alignment::Center)
-            .push(monitoring_button)
-            .push(checkboxes_row) // First row of checkboxes
-            .push(metrics_row) // Second row of checkboxes
-            .push(display); // Metrics display
-
-        Container::new(content)
+        container(content)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x()
@@ -276,7 +309,6 @@ impl Application for SystemMonitor {
     }
 }
 
-// Function to log system metrics to a file
 fn log_metrics(system_monitor: &SystemMonitor) {
     let data = SystemData {
         cpu_usage: system_monitor.cpu_usage,
