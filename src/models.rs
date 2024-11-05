@@ -4,18 +4,23 @@ use sysinfo::{Disks, Networks, System};
 // Messages for the application
 #[derive(Debug, Clone)]
 pub enum Message {
+    IntervalChanged(String),
     Tick,
     ToggleMonitoring,
+    ToggleSaveToFile(bool),
+    LogToFile,
 }
 
 // Struct for serializing and deserializing system data
 #[derive(Serialize, Deserialize)]
 pub struct SystemData {
-    pub cpu_usage: f32,
-    pub memory_usage: (u64, u64),
-    pub disk_usage: (u64, u64),
-    pub network_sent: u64,
-    pub network_received: u64,
+    pub timestamp: String,
+    pub cpu_usage_percent: f32,
+    pub memory_usage_byte: (u64, u64),
+    pub swap_memory_usage_byte: (u64, u64),
+    pub disk_usage_byte: (u64, u64),
+    pub network_sent_byte: u64,
+    pub network_received_byte: u64,
 }
 
 // Basic system info
@@ -79,4 +84,6 @@ pub struct SystemMonitor {
 
     // Other
     pub is_monitoring: bool,
+    pub save_to_file: bool,
+    pub interval_in_secs: String,
 }

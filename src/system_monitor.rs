@@ -1,14 +1,43 @@
-use crate::models::{DisksInfo, Message, Process, SystemBaseInfo, SystemData, SystemMonitor};
-use crate::utils::{self, calculate_disk_usage};
+use crate::models::{DisksInfo, Message, Process, SystemBaseInfo, SystemMonitor};
+use crate::utils::{calculate_disk_usage, convert_from_bytes, log_metrics};
 use iced::time;
-use iced::widget::{button, column, container, horizontal_rule, row, scrollable, text, Column};
+use iced::widget::{
+    button, checkbox, column, container, horizontal_rule, row, scrollable, text, Column, TextInput,
+};
 use iced::{executor, Alignment, Application, Command, Element, Length, Subscription, Theme};
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::{thread, time::Duration};
 use sysinfo::{Disks, Networks, System};
 
 impl SystemMonitor {
+    fn create_control_row(&self) -> Element<Message> {
+        let interval_input = TextInput::new("Interval(s)", self.interval_in_secs.trim())
+            .padding(10)
+            .width(Length::Fixed(120.0))
+            .on_input(|s| Message::IntervalChanged(s));
+
+        let monitoring_button = button(
+            text(if self.is_monitoring {
+                "Stop Monitoring"
+            } else {
+                "Start Monitoring"
+            })
+            .size(14),
+        )
+        .padding(10)
+        .width(Length::Fixed(200.))
+        .on_press(Message::ToggleMonitoring);
+
+        let save_checkbox = checkbox("Save To File", self.save_to_file)
+            .spacing(8)
+            .on_toggle(Message::ToggleSaveToFile);
+
+        row![interval_input, monitoring_button, save_checkbox]
+            .spacing(20)
+            .align_items(Alignment::Center)
+            .padding(20)
+            .into()
+    }
+
     fn view_sys_base_info(&self) -> Column<Message> {
         // System info line
         let system_base_info = text(format!(
@@ -18,9 +47,9 @@ impl SystemMonitor {
             self.system_base_info.kernal_version,
             self.system_base_info.host_name
         ))
-        .size(24)
+        .size(20)
         .style(iced::theme::Text::Color(iced::Color::from_rgb(
-            0.1, 0.8, 0.2,
+            1.0, 0.92, 0.0,
         )));
 
         // align the text centrally, with padding for better look
@@ -63,7 +92,9 @@ impl SystemMonitor {
                 .style(iced::theme::Text::Color(iced::Color::from_rgb(
                     0.1, 0.8, 0.2
                 ))),
+            text("\n"),
             horizontal_rule(5),
+            text("\n"),
             self.view_per_core_usage(),
         ]
     }
@@ -82,10 +113,10 @@ impl SystemMonitor {
                 ))),
             text(format!(
                 "{:.2} GB / {:.2} GB ({:.2}%)",
-                utils::convert_from_bytes(self.memory_usage.0, 3),
-                utils::convert_from_bytes(self.memory_usage.1, 3),
-                (utils::convert_from_bytes(self.memory_usage.0, 3)
-                    / utils::convert_from_bytes(self.memory_usage.1, 3))
+                convert_from_bytes(self.memory_usage.0, 3),
+                convert_from_bytes(self.memory_usage.1, 3),
+                (convert_from_bytes(self.memory_usage.0, 3)
+                    / convert_from_bytes(self.memory_usage.1, 3))
                     * 100.
             ))
             .size(16)
@@ -93,6 +124,7 @@ impl SystemMonitor {
                 0.1, 0.8, 0.2,
             )))
         ]
+        .padding(10)
     }
 
     fn view_disk_info(&self) -> Column<Message> {
@@ -109,10 +141,10 @@ impl SystemMonitor {
                 ))),
             text(format!(
                 "Total Disk Usage: {:.2} GB / {:.2} GB ({:.2}%)",
-                utils::convert_from_bytes(self.disk_usage.0, 3),
-                utils::convert_from_bytes(self.disk_usage.1, 3),
-                (utils::convert_from_bytes(self.disk_usage.0, 3)
-                    / utils::convert_from_bytes(self.disk_usage.1, 3))
+                convert_from_bytes(self.disk_usage.0, 3),
+                convert_from_bytes(self.disk_usage.1, 3),
+                (convert_from_bytes(self.disk_usage.0, 3)
+                    / convert_from_bytes(self.disk_usage.1, 3))
                     * 100.
             ))
             .size(16)
@@ -122,47 +154,46 @@ impl SystemMonitor {
         ];
 
         for disk in &self.disks_info {
-            let disk_info =
-                column![
-                    text(format!("Disk Name: {}", disk.name)).size(20).style(
-                        iced::theme::Text::Color(iced::Color::from_rgb(0.2, 0.6, 1.0))
-                    ),
-                    text(format!("Type: {}", disk.kind))
-                        .size(16)
-                        .style(iced::theme::Text::Color(iced::Color::from_rgb(
-                            0.1, 0.8, 0.2,
-                        ))),
-                    text(format!("Mount Point: {}", disk.mount)).size(16).style(
-                        iced::theme::Text::Color(iced::Color::from_rgb(0.1, 0.8, 0.2,))
-                    ),
-                    text(format!(
-                        "Total Disk Space: {:.2} GB",
-                        utils::convert_from_bytes(disk.total_disk, 3)
-                    ))
-                    .size(18)
+            let disk_info = column![
+                text(format!("Disk Name: {}\n", disk.name)).size(20).style(
+                    iced::theme::Text::Color(iced::Color::from_rgb(0.2, 0.6, 1.0))
+                ),
+                text(format!("Type: {}", disk.kind))
+                    .size(16)
                     .style(iced::theme::Text::Color(iced::Color::from_rgb(
                         0.1, 0.8, 0.2,
                     ))),
-                    text(format!(
-                        "Free Disk Space: {:.2} GB",
-                        utils::convert_from_bytes(disk.free_disk, 3)
-                    ))
-                    .size(18)
+                text(format!("Mount Point: {}", disk.mount)).size(16).style(
+                    iced::theme::Text::Color(iced::Color::from_rgb(0.1, 0.8, 0.2,))
+                ),
+                text(format!(
+                    "Total Disk Space: {:.2} GB",
+                    convert_from_bytes(disk.total_disk, 3)
+                ))
+                .size(18)
+                .style(iced::theme::Text::Color(iced::Color::from_rgb(
+                    0.1, 0.8, 0.2,
+                ))),
+                text(format!(
+                    "Free Disk Space: {:.2} GB",
+                    convert_from_bytes(disk.free_disk, 3)
+                ))
+                .size(18)
+                .style(iced::theme::Text::Color(iced::Color::from_rgb(
+                    0.1, 0.8, 0.2,
+                ))),
+                text(format!("Used Disk: {:.2}%", disk.used_disk_percent))
+                    .size(16)
                     .style(iced::theme::Text::Color(iced::Color::from_rgb(
                         0.1, 0.8, 0.2,
                     ))),
-                    text(format!("Used Disk: {:.2}%", disk.used_disk_percent))
-                        .size(16)
-                        .style(iced::theme::Text::Color(iced::Color::from_rgb(
-                            0.1, 0.8, 0.2,
-                        ))),
-                    // add a little space between each disk
-                    text("-------------------------------------------------")
-                        .size(16)
-                        .style(iced::theme::Text::Color(iced::Color::from_rgb(
-                            0.2, 0.6, 1.0,
-                        ))),
-                ];
+                // add a little space between each disk
+                text("-------------------------------------------------")
+                    .size(16)
+                    .style(iced::theme::Text::Color(iced::Color::from_rgb(
+                        0.2, 0.6, 1.0,
+                    ))),
+            ];
 
             // Add the disk info to the main display column
             disk_display = disk_display.push(container(disk_info).padding(10));
@@ -186,8 +217,8 @@ impl SystemMonitor {
                 ))),
             text(format!(
                 "- Sent: {:.2} KB\n\n- Received: {:.2} KB",
-                utils::convert_from_bytes(self.network_sent, 1),
-                utils::convert_from_bytes(self.network_received, 1)
+                convert_from_bytes(self.network_sent, 1),
+                convert_from_bytes(self.network_received, 1)
             ))
             .size(16)
             .style(iced::theme::Text::Color(iced::Color::from_rgb(
@@ -374,13 +405,15 @@ impl Application for SystemMonitor {
                 network_received,
                 processes,
                 is_monitoring: false,
+                save_to_file: false,
+                interval_in_secs: "".to_string(),
             },
             Command::none(),
         )
     }
 
     fn title(&self) -> String {
-        String::from("System Monitor")
+        String::from("Real-Time System Monitor")
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
@@ -450,11 +483,27 @@ impl Application for SystemMonitor {
                         });
                     }
 
-                    log_metrics(&self);
+                    self.processes.sort_by(|a, b| {
+                        b.memory_usage_percent
+                            .partial_cmp(&a.memory_usage_percent)
+                            .unwrap_or(std::cmp::Ordering::Less)
+                    });
                 }
+            }
+
+            Message::LogToFile => {
+                log_metrics(&self);
+            }
+
+            Message::ToggleSaveToFile(x) => {
+                self.save_to_file = x;
             }
             Message::ToggleMonitoring => {
                 self.is_monitoring = !self.is_monitoring;
+            }
+
+            Message::IntervalChanged(x) => {
+                self.interval_in_secs = x;
             }
         }
 
@@ -462,18 +511,7 @@ impl Application for SystemMonitor {
     }
 
     fn view(&self) -> Element<Self::Message> {
-        // button at the top center
-        let monitoring_button = button(
-            text(if self.is_monitoring {
-                "Stop Monitoring"
-            } else {
-                "Start Monitoring"
-            })
-            .size(30),
-        )
-        .padding(10)
-        .width(Length::Fixed(240.))
-        .on_press(Message::ToggleMonitoring);
+        let control_row = self.create_control_row();
 
         // system information row
         let sys_info_row = self
@@ -494,7 +532,7 @@ impl Application for SystemMonitor {
         // Arrange these categories in a row with proper spacing
         let metrics_row = row![
             cpu_info,
-            column!(memory_info, network_info),
+            column!(memory_info, network_info).padding(5),
             disk_info,
             scrollable_process
         ]
@@ -503,7 +541,7 @@ impl Application for SystemMonitor {
         .align_items(Alignment::Center);
 
         // Combine the layout
-        let content = column![monitoring_button, sys_info_row, metrics_row]
+        let content = column![control_row, sys_info_row, metrics_row]
             .spacing(20)
             .align_items(Alignment::Center)
             .padding(10);
@@ -518,28 +556,24 @@ impl Application for SystemMonitor {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         if self.is_monitoring {
-            time::every(Duration::from_secs(1)).map(|_| Message::Tick)
+            // Parse interval string to u64, with a default fallback
+
+            let interval_secs = self.interval_in_secs.parse::<u64>().unwrap_or(3); // Default to 3 second if parsing fails
+
+            let tick_interval = time::every(Duration::from_secs(1)).map(|_| Message::Tick);
+
+            if self.save_to_file && !self.interval_in_secs.is_empty() {
+                // Create a separate interval for file saving
+                let log_interval =
+                    time::every(Duration::from_secs(interval_secs)).map(|_| Message::LogToFile);
+
+                Subscription::batch([tick_interval, log_interval].into_iter())
+            } else {
+                // Only monitor without saving
+                tick_interval
+            }
         } else {
             Subscription::none()
         }
     }
-}
-
-fn log_metrics(system_monitor: &SystemMonitor) {
-    let data = SystemData {
-        cpu_usage: system_monitor.cpu_usage,
-        memory_usage: system_monitor.memory_usage,
-        disk_usage: system_monitor.disk_usage,
-        network_sent: system_monitor.network_sent,
-        network_received: system_monitor.network_received,
-    };
-
-    let serialized = serde_json::to_string(&data).expect("Failed to serialize system data");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("system_log.json")
-        .expect("Failed to open log file");
-
-    writeln!(file, "{}", serialized).expect("Failed to write data to log file");
 }
