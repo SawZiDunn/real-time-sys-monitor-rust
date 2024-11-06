@@ -556,11 +556,20 @@ impl Application for SystemMonitor {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         if self.is_monitoring {
-            // Parse interval string to u64, with a default fallback
-
-            let interval_secs = self.interval_in_secs.parse::<u64>().unwrap_or(3); // Default to 3 second if parsing fails
+            // Parse interval string to u64
+            let interval_secs = match self.interval_in_secs.parse::<u64>() {
+                Ok(x) => x,
+                Err(_) => {
+                    // Default to 3 second if parsing fails
+                    eprintln!("Invalid Value for Logging Interval!\n3 seconds interval time will be used by default.");
+                    3
+                }
+            };
 
             let tick_interval = time::every(Duration::from_secs(1)).map(|_| Message::Tick);
+            if self.interval_in_secs.is_empty() {
+                eprintln!("Input value for logging interval is empty!\nSystem Data will not be saved to the file.")
+            }
 
             if self.save_to_file && !self.interval_in_secs.is_empty() {
                 // Create a separate interval for file saving
