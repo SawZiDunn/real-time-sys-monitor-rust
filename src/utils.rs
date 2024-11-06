@@ -4,6 +4,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use sysinfo::Disks;
 
+// B to KB, MB, or GB depending on the value
 pub fn convert_from_bytes(bytes: u64, value: i32) -> f64 {
     bytes as f64 / f64::powf(1024., value as f64)
 }
