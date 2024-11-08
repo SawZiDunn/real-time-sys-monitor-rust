@@ -63,7 +63,7 @@ impl SystemMonitor {
     fn view_cpu_info(&self) -> Column<Message> {
         column![
             text("CPU Usage\n")
-                .size(24)
+                .size(22)
                 .style(iced::theme::Text::Color(iced::Color::from_rgb(
                     0.2, 0.6, 1.0,
                 ))),
@@ -97,12 +97,13 @@ impl SystemMonitor {
             text("\n"),
             self.view_per_core_usage(),
         ]
+        .padding(5)
     }
 
     fn view_memory_info(&self) -> Column<Message> {
         column![
             text("Memory Usage\n")
-                .size(24)
+                .size(22)
                 .style(iced::theme::Text::Color(iced::Color::from_rgb(
                     0.2, 0.6, 1.0,
                 ))),
@@ -122,6 +123,28 @@ impl SystemMonitor {
             .size(16)
             .style(iced::theme::Text::Color(iced::Color::from_rgb(
                 0.1, 0.8, 0.2,
+            ))),
+            text("\nSwap Memory Usage\n")
+                .size(22)
+                .style(iced::theme::Text::Color(iced::Color::from_rgb(
+                    0.2, 0.6, 1.0,
+                ))),
+            text("------------\n")
+                .size(22)
+                .style(iced::theme::Text::Color(iced::Color::from_rgb(
+                    0.1, 0.8, 0.2,
+                ))),
+            text(format!(
+                "{:.2} GB / {:.2} GB ({:.2}%)",
+                convert_from_bytes(self.swap_memory_usage.0, 3),
+                convert_from_bytes(self.swap_memory_usage.1, 3),
+                (convert_from_bytes(self.swap_memory_usage.0, 3)
+                    / convert_from_bytes(self.swap_memory_usage.1, 3))
+                    * 100.
+            ))
+            .size(16)
+            .style(iced::theme::Text::Color(iced::Color::from_rgb(
+                0.1, 0.8, 0.2,
             )))
         ]
         .padding(10)
@@ -130,7 +153,7 @@ impl SystemMonitor {
     fn view_disk_info(&self) -> Column<Message> {
         let mut disk_display = column![
             text("Disk Usage")
-                .size(24)
+                .size(22)
                 .style(iced::theme::Text::Color(iced::Color::from_rgb(
                     0.2, 0.6, 1.0,
                 ))),
@@ -206,7 +229,7 @@ impl SystemMonitor {
     fn view_network_info(&self) -> Column<Message> {
         column![
             text("Network Usage\n")
-                .size(24)
+                .size(22)
                 .style(iced::theme::Text::Color(iced::Color::from_rgb(
                     0.2, 0.6, 1.0,
                 ))),
@@ -252,12 +275,19 @@ impl SystemMonitor {
         ];
         // 0.1, 0.8, 0.2
         for each in self.processes.iter() {
+            // slicing the running process name if it's too long
+            let name = if each.name.len() > 40 {
+                &each.name[..38]
+            } else {
+                &each.name
+            };
+
             process_display = process_display.push(
                 row![
                     text(format!("ID: {} |", each.id)).style(iced::theme::Text::Color(
                         iced::Color::from_rgb(0.1, 0.8, 0.2)
                     ),),
-                    text(format!("Name: {} |", each.name)).style(iced::theme::Text::Color(
+                    text(format!("Name: {} |", name)).style(iced::theme::Text::Color(
                         iced::Color::from_rgb(0.1, 0.8, 0.2)
                     ),),
                     text(format!("CPU: {:.2}% |", each.cpu_usage_percent)).style(
