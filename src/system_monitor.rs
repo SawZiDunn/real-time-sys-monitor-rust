@@ -273,7 +273,7 @@ impl SystemMonitor {
                     0.1, 0.8, 0.2,
                 ))),
         ];
-        // 0.1, 0.8, 0.2
+
         for each in self.processes.iter() {
             // slicing the running process name if it's too long
             let name = if each.name.len() > 40 {
