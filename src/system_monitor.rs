@@ -528,6 +528,7 @@ impl Application for SystemMonitor {
             Message::ToggleSaveToFile(x) => {
                 self.save_to_file = x;
             }
+
             Message::ToggleMonitoring => {
                 self.is_monitoring = !self.is_monitoring;
             }
@@ -596,6 +597,7 @@ impl Application for SystemMonitor {
                 }
             };
 
+            // Message::Tick updates system metrics on the screen every second
             let tick_interval = time::every(Duration::from_secs(1)).map(|_| Message::Tick);
             if self.interval_in_secs.is_empty() {
                 eprintln!("Input value for logging interval is empty!\nSystem Data will not be saved to the file.")

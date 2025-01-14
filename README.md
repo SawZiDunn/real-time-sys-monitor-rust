@@ -1,10 +1,10 @@
-# Rust System Monitor
+# Real-time System Monitor
 
 Rust System Monitor is a real-time system monitoring application built with Rust and the Iced GUI framework. It tracks essential system metrics, including CPU usage, memory consumption, disk usage, and network traffic, and allows users to log data for further analysis.
 
 ## Grup Members and Contributions
 
-1. **Saw Zi Dunn** - Data Structures Implementations
+1. **Saw Zi Dunn** - Data Structures Implementations, System Data Retrieval
 2. **San Aung** - GUI Design and utility functions
 
 ## Features
@@ -13,6 +13,20 @@ Rust System Monitor is a real-time system monitoring application built with Rust
 -   **Customizable Data-logging Interval**: Set time intervals for logging data.
 -   **Data Logging**: Option to save monitored data to a file for later analysis with set interval.
 -   **User-Friendly GUI**: Built with the Iced framework for an intuitive interface.
+
+## Demonstration Video
+
+Click [here](https://youtu.be/9txkmWX0i5g?si=g67H7wHb31Vi-JRg) to watch Demonstration Video.
+
+## Screenshots
+
+### Main Dashboard
+
+![Main Dashboard](./demos/main-dashboard.png)
+
+### Data Logging
+
+![Data Logging](./demos/data-logging.png)
 
 ## Installation
 
